@@ -173,6 +173,23 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("이미 회전(소비)된 Refresh 토큰을 재사용하면 401을 반환한다")
+    void refreshReuseRotatedToken() throws Exception {
+        String id = uniqueId();
+        signUp(id);
+        Cookie refreshCookie = signIn(id);
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .cookie(refreshCookie))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .cookie(refreshCookie))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.message").value("로그인이 필요합니다."));
+    }
+
+    @Test
     @DisplayName("Refresh 쿠키가 없으면 401을 반환한다")
     void refreshWithoutCookie() throws Exception {
         mockMvc.perform(post("/api/auth/refresh"))

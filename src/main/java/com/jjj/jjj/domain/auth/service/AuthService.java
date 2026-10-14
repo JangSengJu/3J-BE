@@ -61,14 +61,11 @@ public class AuthService {
         }
 
         String jti = jwtProvider.getJti(refreshToken);
-        Long memberId = refreshTokenRepository.findMemberIdByJti(jti)
+        Long memberId = refreshTokenRepository.consumeByJti(jti)
                 .orElseThrow(() -> new BusinessException(ErrorCode.REFRESH_TOKEN_INVALID));
 
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.REFRESH_TOKEN_INVALID));
-
-        // Refresh Token 회전: 기존 jti 폐기 후 새 토큰 발급
-        refreshTokenRepository.deleteByJti(jti);
 
         String newAccessToken = jwtProvider.createAccessToken(member.getId(), member.getRole().getKey());
         String newRefreshToken = issueRefreshToken(member.getId());

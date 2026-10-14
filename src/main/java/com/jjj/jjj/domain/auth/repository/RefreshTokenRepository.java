@@ -19,16 +19,12 @@ public class RefreshTokenRepository {
         redisTemplate.opsForValue().set(key(jti), String.valueOf(memberId), ttl);
     }
 
-    public Optional<Long> findMemberIdByJti(String jti) {
-        String memberId = redisTemplate.opsForValue().get(key(jti));
+    public Optional<Long> consumeByJti(String jti) {
+        String memberId = redisTemplate.opsForValue().getAndDelete(key(jti));
         if (memberId == null) {
             return Optional.empty();
         }
         return Optional.of(Long.valueOf(memberId));
-    }
-
-    public boolean existsByJti(String jti) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(key(jti)));
     }
 
     public void deleteByJti(String jti) {
