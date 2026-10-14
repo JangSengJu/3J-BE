@@ -9,10 +9,17 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
 jwt:
-  expiration_time: 86400000
   secret: ${JWT_SECRET}
+  access-expiration: ${JWT_ACCESS_TTL:30m}
+  refresh-expiration: ${JWT_REFRESH_TTL:14d}
