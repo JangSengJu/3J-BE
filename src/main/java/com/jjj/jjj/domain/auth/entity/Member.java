@@ -26,4 +26,14 @@ public class Member extends BaseEntity {
 
     @Column(nullable = false)
     private String password;
+
+    private Member(String username, String password, Role role) {
+        this.username = username;
+        this.password = password;
+        this.role = role;
+    }
+
+    public static Member create(String username, String password, Role role) {
+        return new Member(username, password, role);
+    }
 }
