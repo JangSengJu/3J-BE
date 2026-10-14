@@ -12,4 +12,9 @@ public record SignUpRequest(
         @Size(min = 8, max = 200, message = "비밀번호는 8자 이상 200자 이하여야 합니다")
         String password
 ) {
+    public SignUpRequest {
+        if (id != null) {
+            id = id.trim().toLowerCase();
+        }
+    }
 }

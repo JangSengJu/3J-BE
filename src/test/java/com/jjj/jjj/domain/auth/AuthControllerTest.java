@@ -110,6 +110,16 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("trim/소문자 정규화 후 4자 미만이 되는 아이디는 400을 반환한다")
+    void signUpTooShortAfterNormalization() throws Exception {
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(Map.of("id", "  Ab  ", "password", "secret123"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
     @DisplayName("로그인 성공 시 Access Token과 Refresh 쿠키를 발급한다")
     void signIn() throws Exception {
         String id = uniqueId();
