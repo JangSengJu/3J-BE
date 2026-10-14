@@ -216,14 +216,17 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("Refresh 토큰을 Bearer 인증 헤더로 사용하면 거부된다")
-    void refreshTokenCannotAuthenticate() throws Exception {
+    @DisplayName("Access 토큰이 만료돼도 Refresh 쿠키만으로 로그아웃할 수 있다")
+    void signOutWithoutAccessToken() throws Exception {
         String id = uniqueId();
         signUp(id);
         Cookie refreshCookie = signIn(id);
 
         mockMvc.perform(post("/api/auth/signout")
-                        .header("Authorization", "Bearer " + refreshCookie.getValue())
+                        .cookie(refreshCookie))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/auth/refresh")
                         .cookie(refreshCookie))
                 .andExpect(status().isUnauthorized());
     }
