@@ -20,6 +20,9 @@ import java.util.UUID;
 public class JwtProvider {
 
     private static final String ROLE_CLAIM = "role";
+    private static final String TOKEN_TYPE_CLAIM = "type";
+    private static final String ACCESS_TOKEN_TYPE = "access";
+    private static final String REFRESH_TOKEN_TYPE = "refresh";
 
     private final SecretKey key;
     private final Duration accessTokenExpiration;
@@ -43,6 +46,7 @@ public class JwtProvider {
         return Jwts.builder()
                 .setSubject(String.valueOf(id))
                 .claim(ROLE_CLAIM, role)
+                .claim(TOKEN_TYPE_CLAIM, ACCESS_TOKEN_TYPE)
                 .setIssuedAt(now)
                 .setExpiration(expiry)
                 .signWith(key, SignatureAlgorithm.HS256)
@@ -56,6 +60,7 @@ public class JwtProvider {
 
         return Jwts.builder()
                 .setSubject(String.valueOf(id))
+                .claim(TOKEN_TYPE_CLAIM, REFRESH_TOKEN_TYPE)
                 .setId(UUID.randomUUID().toString())
                 .setIssuedAt(now)
                 .setExpiration(expiry)
@@ -77,6 +82,16 @@ public class JwtProvider {
         try {
             parseClaims(token);
             return true;
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    // Access Token 검증 (서명/만료 + Access 타입 여부)
+    public boolean validateAccessToken(String token) {
+        try {
+            String type = parseClaims(token).get(TOKEN_TYPE_CLAIM, String.class);
+            return ACCESS_TOKEN_TYPE.equals(type);
         } catch (JwtException | IllegalArgumentException e) {
             return false;
         }

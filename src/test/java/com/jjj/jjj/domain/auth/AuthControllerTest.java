@@ -215,6 +215,19 @@ class AuthControllerTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    @DisplayName("Refresh 토큰을 Bearer 인증 헤더로 사용하면 거부된다")
+    void refreshTokenCannotAuthenticate() throws Exception {
+        String id = uniqueId();
+        signUp(id);
+        Cookie refreshCookie = signIn(id);
+
+        mockMvc.perform(post("/api/auth/signout")
+                        .header("Authorization", "Bearer " + refreshCookie.getValue())
+                        .cookie(refreshCookie))
+                .andExpect(status().isUnauthorized());
+    }
+
     private void signUp(String id) throws Exception {
         mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
