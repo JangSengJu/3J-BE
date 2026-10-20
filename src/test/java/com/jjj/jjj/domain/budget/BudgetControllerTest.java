@@ -186,6 +186,25 @@ class BudgetControllerTest {
     }
 
     @Test
+    @DisplayName("notes는 최대 200건까지만 저장한다")
+    void saveBudgetLimitsNotes() throws Exception {
+        String id = uniqueId();
+        signUp(id);
+
+        Map<String, Object> notes = new LinkedHashMap<>();
+        for (int i = 0; i < 205; i++) {
+            notes.put("note-" + i, "value-" + i);
+        }
+
+        mockMvc.perform(put("/api/budget")
+                        .header("Authorization", "Bearer " + accessToken(id))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(Map.of("notes", notes))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.budget.notes.length()").value(200));
+    }
+
+    @Test
     @DisplayName("purpose, notes, meta는 상한 길이로 잘라 저장한다")
     void saveBudgetTruncatesLongText() throws Exception {
         String id = uniqueId();

@@ -22,6 +22,7 @@ import java.util.Set;
 public class BudgetService {
 
     private static final int MAX_RESOURCES = 200;
+    private static final int MAX_NOTES = 200;
     private static final int MAX_NAME = 120;
     private static final int MAX_TEXT = 120;
     private static final int MAX_META = 200;
@@ -102,13 +103,17 @@ public class BudgetService {
             return normalized;
         }
 
-        notes.forEach((key, value) -> {
-            String normalizedKey = normalizeText(key, MAX_NAME);
-            if (normalizedKey == null) {
-                return;
+        for (Map.Entry<String, String> entry : notes.entrySet()) {
+            if (normalized.size() >= MAX_NOTES) {
+                break;
             }
-            normalized.put(normalizedKey, defaultIfNull(normalizeText(value, MAX_NOTE), ""));
-        });
+
+            String normalizedKey = normalizeText(entry.getKey(), MAX_NAME);
+            if (normalizedKey == null) {
+                continue;
+            }
+            normalized.put(normalizedKey, defaultIfNull(normalizeText(entry.getValue(), MAX_NOTE), ""));
+        }
         return normalized;
     }
 
