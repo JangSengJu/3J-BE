@@ -2,6 +2,7 @@ package com.jjj.jjj.domain.auth.service;
 
 import com.jjj.jjj.domain.auth.dto.request.SignInRequest;
 import com.jjj.jjj.domain.auth.dto.request.SignUpRequest;
+import com.jjj.jjj.domain.auth.dto.response.MeResponse;
 import com.jjj.jjj.domain.auth.dto.response.SignInResponse;
 import com.jjj.jjj.domain.auth.dto.response.SignUpResponse;
 import com.jjj.jjj.domain.auth.dto.response.UserResponse;
@@ -78,6 +79,14 @@ public class AuthService {
             return;
         }
         refreshTokenRepository.deleteByJti(jwtProvider.getJti(refreshToken));
+    }
+
+    @Transactional(readOnly = true)
+    public MeResponse getMe(Long memberId) {
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+
+        return new MeResponse(UserResponse.from(member));
     }
 
     private String issueRefreshToken(Long memberId) {

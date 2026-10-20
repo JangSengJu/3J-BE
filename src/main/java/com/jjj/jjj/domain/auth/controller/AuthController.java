@@ -3,6 +3,7 @@ package com.jjj.jjj.domain.auth.controller;
 import com.jjj.jjj.domain.auth.dto.request.SignInRequest;
 import com.jjj.jjj.domain.auth.dto.request.SignUpRequest;
 import com.jjj.jjj.domain.auth.dto.response.AccessTokenResponse;
+import com.jjj.jjj.domain.auth.dto.response.MeResponse;
 import com.jjj.jjj.domain.auth.dto.response.SignInResponse;
 import com.jjj.jjj.domain.auth.dto.response.SignUpResponse;
 import com.jjj.jjj.domain.auth.service.AuthService;
@@ -13,7 +14,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -62,5 +65,12 @@ public class AuthController {
         return ResponseEntity.noContent()
                 .header(HttpHeaders.SET_COOKIE, refreshTokenCookieProvider.delete().toString())
                 .build();
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<MeResponse>> me(Authentication authentication) {
+        Long memberId = Long.valueOf(authentication.getName());
+
+        return ResponseEntity.ok(ApiResponse.ok(authService.getMe(memberId)));
     }
 }
