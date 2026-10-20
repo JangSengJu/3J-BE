@@ -43,6 +43,7 @@ public class SecurityConfig {
                             "/v3/api-docs/**"
                         ).permitAll()
                         .requestMatchers(
+                            "/api/health",
                             "/api/auth/signup",
                             "/api/auth/signin",
                             "/api/auth/refresh",
