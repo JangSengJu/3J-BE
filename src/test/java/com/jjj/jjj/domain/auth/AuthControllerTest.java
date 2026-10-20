@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -229,6 +230,29 @@ class AuthControllerTest {
         mockMvc.perform(post("/api/auth/refresh")
                         .cookie(refreshCookie))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("현재 사용자 조회 시 정규화된 아이디와 가입 시각을 반환한다")
+    void me() throws Exception {
+        String id = uniqueId();
+        signUp(id);
+
+        mockMvc.perform(get("/api/auth/me")
+                        .header("Authorization", "Bearer " + accessToken(id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.user.id").value(id))
+                .andExpect(jsonPath("$.data.user.createdAt").exists());
+    }
+
+    @Test
+    @DisplayName("인증 없이 현재 사용자 조회 시 401을 반환한다")
+    void meUnauthorized() throws Exception {
+        mockMvc.perform(get("/api/auth/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.message").value("로그인이 필요합니다."));
     }
 
     private void signUp(String id) throws Exception {

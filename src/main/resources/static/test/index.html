@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3J API Tester</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+    margin: 24px auto; max-width: 1040px; line-height: 1.4; padding: 0 16px;
+  }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  h2 { font-size: 15px; margin: 0; }
+  fieldset { border: 1px solid #8884; border-radius: 8px; margin: 0 0 14px; padding: 12px 14px; }
+  legend { padding: 0 6px; font-weight: 600; }
+  label { font-size: 12.5px; color: #888; }
+  input, select, textarea {
+    font: inherit; padding: 6px 8px; border: 1px solid #8886; border-radius: 6px;
+    background: transparent; color: inherit; width: 100%;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > label { flex: 1; min-width: 130px; display: flex; flex-direction: column; gap: 4px; }
+  .stack { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+  button {
+    font: inherit; padding: 6px 11px; border-radius: 6px; border: 1px solid #8886;
+    background: #8881; color: inherit; cursor: pointer; margin: 0 6px 6px 0;
+  }
+  button:hover { background: #8883; }
+  button:active { transform: translateY(1px); }
+  button.icon { padding: 4px 9px; margin: 0; line-height: 1; }
+  button.danger { color: #c62828; border-color: #c6282866; }
+  .card {
+    border: 1px solid #8884; border-radius: 8px; padding: 10px; margin-bottom: 8px; background: #8881;
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .card-title { font-size: 12.5px; font-weight: 700; color: #888; }
+  .kv > label { min-width: 90px; flex: 0 0 auto; }
+  .kv-note { flex: 2 1 220px; }
+  pre {
+    background: #8881; border: 1px solid #8884; border-radius: 8px; padding: 12px;
+    overflow: auto; max-height: 460px; white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; margin: 8px 0 0;
+  }
+  .muted { color: #888; font-size: 12.5px; line-height: 1.55; }
+  .status { font-weight: 700; font-size: 13px; margin-top: 4px; }
+  .status.ok { color: #1a8f3c; }
+  .status.err { color: #c62828; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1 1 auto; }
+</style>
+</head>
+<body>
+<h1>3J API Tester</h1>
+<p class="muted">
+  서버와 같은 오리진에서 열립니다. <code>./gradlew bootRun</code> 후 이 페이지를 사용하세요.
+  JSON을 직접 쓰지 않아도 됩니다 — 폼에 입력하면 요청 본문이 자동 생성됩니다.
+</p>
+
+<fieldset>
+  <legend>연결</legend>
+  <div class="stack">
+    <label for="token">Access Token (signin 성공 시 자동 입력)</label>
+    <div class="inline">
+      <input id="token" class="grow" placeholder="Bearer 토큰" autocomplete="off" spellcheck="false">
+      <button id="btn-clear-token" type="button">지우기</button>
+    </div>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Health (#1)</legend>
+  <button id="btn-health" type="button">GET /api/health</button>
+</fieldset>
+
+<fieldset>
+  <legend>Auth (#6)</legend>
+  <div class="row">
+    <label>id <input id="id" value="student@dsm.kr" autocomplete="off"></label>
+    <label>password <input id="password" type="password" value="secret123" autocomplete="off"></label>
+  </div>
+  <button id="btn-signup" type="button">POST /api/auth/signup</button>
+  <button id="btn-signin" type="button">POST /api/auth/signin</button>
+  <button id="btn-me" type="button">GET /api/auth/me</button>
+  <button id="btn-refresh" type="button">POST /api/auth/refresh</button>
+  <button id="btn-signout" type="button">POST /api/auth/signout</button>
+  <p class="muted" style="margin:8px 0 0;">
+    refresh / signout은 <code>httpOnly · SameSite=Strict</code> 쿠키를 사용합니다. 이 페이지는 서버와 같은 오리진이라 정상 동작합니다.
+  </p>
+</fieldset>
+
+<fieldset>
+  <legend>Budget (#7, #8)</legend>
+
+  <div class="row">
+    <label>limit (월 예산 한도, 양수) <input id="limit" type="number" step="1" value="60"></label>
+    <label>purpose (예산 목적) <input id="purpose" placeholder="예: 고객용 웹 서비스 운영"></label>
+  </div>
+
+  <div class="card-head">
+    <span class="card-title">리소스 (resources)</span>
+    <button id="btn-add-resource" type="button">+ 리소스 추가</button>
+  </div>
+  <div id="resources"></div>
+
+  <div class="card-head" style="margin-top:12px;">
+    <span class="card-title">메모 (notes)</span>
+    <button id="btn-add-note" type="button">+ 메모 추가</button>
+  </div>
+  <div id="notes"></div>
+
+  <div style="margin-top:12px;">
+    <button id="btn-budget-get" type="button">GET /api/budget (폼에 불러오기)</button>
+    <button id="btn-budget-put" type="button">PUT /api/budget (폼 값 저장)</button>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>응답</legend>
+  <div id="status" class="status">아직 요청 없음</div>
+  <pre id="out">버튼을 눌러 API를 호출하세요.</pre>
+</fieldset>
+
+<template id="tpl-resource">
+  <div class="card resource">
+    <div class="card-head">
+      <span class="card-title">리소스</span>
+      <button class="icon danger remove" type="button" title="삭제">✕</button>
+    </div>
+    <div class="row">
+      <label class="grow">name (필수) <input class="f-name" placeholder="예: web-server"></label>
+      <label>id (선택) <input class="f-id" placeholder="r-1"></label>
+      <label>type <input class="f-type" placeholder="예: EC2"></label>
+    </div>
+    <div class="row">
+      <label>unit
+        <select class="f-unit">
+          <option value="hour">hour</option>
+          <option value="lcu_hour">lcu_hour</option>
+          <option value="month" selected>month</option>
+          <option value="gb_month">gb_month</option>
+          <option value="gb_transfer">gb_transfer</option>
+          <option value="gb_second">gb_second</option>
+          <option value="million_requests">million_requests</option>
+          <option value="request">request</option>
+        </select>
+      </label>
+      <label>cost <input class="f-cost" type="number" step="0.01" value="0" placeholder="0.00"></label>
+      <label>usage <input class="f-usage" placeholder="예: &lt;5%"></label>
+      <label>need <input class="f-need" placeholder="예: 대부분 유휴"></label>
+    </div>
+    <div class="row">
+      <label class="grow">meta <input class="f-meta" placeholder="예: EC2 · m5.large · 730 시간"></label>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-note">
+  <div class="row kv" style="margin-bottom:6px;">
+    <label>key <input class="kv-key"></label>
+    <label class="kv-note">value <input class="kv-value"></label>
+    <button class="remove" type="button" style="flex:0 0 auto; align-self:flex-end;">✕</button>
+  </div>
+</template>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const out = $("out");
+  const statusEl = $("status");
+
+  function setStatus(text, ok) {
+    statusEl.textContent = text;
+    statusEl.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
+  }
+
+  function render(title, statusText, payload, ok) {
+    setStatus(statusText, ok);
+    const body = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    out.textContent = title + "\n" + "-".repeat(64) + "\n" + body;
+  }
+
+  async function request(method, path, options) {
+    options = options || {};
+    const headers = {};
+    if (options.body !== undefined) headers["Content-Type"] = "application/json";
+
+    const token = $("token").value.trim();
+    if (options.auth !== false && token) headers["Authorization"] = "Bearer " + token;
+
+    const url = location.origin + path;
+    const started = performance.now();
+    render(method + " " + url, "요청 중...", "", null);
+
+    try {
+      const res = await fetch(url, {
+        method: method,
+        headers: headers,
+        credentials: "include",
+        body: options.body === undefined ? undefined : JSON.stringify(options.body)
+      });
+      const text = await res.text();
+      let payload;
+      try {
+        payload = text ? JSON.parse(text) : "(empty body)";
+      } catch (e) {
+        payload = text;
+      }
+      const ms = Math.round(performance.now() - started);
+      render(method + " " + url, res.status + " " + res.statusText + " · " + ms + "ms", payload, res.ok);
+      return { ok: res.ok, status: res.status, payload: payload };
+    } catch (error) {
+      render(method + " " + url, "NETWORK ERROR", String(error), false);
+      return { ok: false, error: error };
+    }
+  }
+
+  /* ---------- resources ---------- */
+
+  function addResource(data) {
+    data = data || {};
+    const node = $("tpl-resource").content.firstElementChild.cloneNode(true);
+    node.querySelector(".f-name").value = data.name || "";
+    node.querySelector(".f-id").value = data.id || "";
+    node.querySelector(".f-type").value = data.type || "";
+    node.querySelector(".f-unit").value = data.unit || "month";
+    node.querySelector(".f-cost").value =
+      data.cost === undefined || data.cost === null ? "0" : data.cost;
+    node.querySelector(".f-usage").value = data.usage || "";
+    node.querySelector(".f-need").value = data.need || "";
+    node.querySelector(".f-meta").value = data.meta || "";
+    node.querySelector(".remove").addEventListener("click", function () { node.remove(); });
+    $("resources").appendChild(node);
+  }
+
+  function collectResources() {
+    const result = [];
+    document.querySelectorAll("#resources .resource").forEach(function (card) {
+      const name = card.querySelector(".f-name").value.trim();
+      if (!name) return;
+      const resource = { name: name };
+      const id = card.querySelector(".f-id").value.trim();
+      if (id) resource.id = id;
+      const type = card.querySelector(".f-type").value.trim();
+      if (type) resource.type = type;
+      resource.unit = card.querySelector(".f-unit").value;
+      const cost = card.querySelector(".f-cost").value.trim();
+      if (cost !== "") resource.cost = cost;
+      const usage = card.querySelector(".f-usage").value.trim();
+      if (usage) resource.usage = usage;
+      const need = card.querySelector(".f-need").value.trim();
+      if (need) resource.need = need;
+      const meta = card.querySelector(".f-meta").value.trim();
+      if (meta) resource.meta = meta;
+      result.push(resource);
+    });
+    return result;
+  }
+
+  /* ---------- notes ---------- */
+
+  function addNote(key, value) {
+    const node = $("tpl-note").content.firstElementChild.cloneNode(true);
+    node.querySelector(".kv-key").value = key || "";
+    node.querySelector(".kv-value").value = value || "";
+    node.querySelector(".remove").addEventListener("click", function () { node.remove(); });
+    $("notes").appendChild(node);
+  }
+
+  function collectNotes() {
+    const notes = {};
+    document.querySelectorAll("#notes .kv").forEach(function (row) {
+      const key = row.querySelector(".kv-key").value.trim();
+      if (!key) return;
+      notes[key] = row.querySelector(".kv-value").value;
+    });
+    return notes;
+  }
+
+  /* ---------- budget form <-> dto ---------- */
+
+  function fillBudgetForm(budget) {
+    budget = budget || {};
+    $("limit").value = budget.limit === undefined || budget.limit === null ? "" : budget.limit;
+    $("purpose").value = budget.purpose || "";
+
+    $("resources").innerHTML = "";
+    (budget.resources || []).forEach(addResource);
+    if (!budget.resources || budget.resources.length === 0) addResource();
+
+    $("notes").innerHTML = "";
+    const notes = budget.notes || {};
+    Object.keys(notes).forEach(function (k) { addNote(k, notes[k]); });
+  }
+
+  function buildBudgetPayload() {
+    const payload = {
+      resources: collectResources(),
+      notes: collectNotes()
+    };
+    const limit = $("limit").value.trim();
+    if (limit !== "") payload.limit = Number(limit);
+    payload.purpose = $("purpose").value;
+    return payload;
+  }
+
+  /* ---------- actions ---------- */
+
+  function health() {
+    request("GET", "/api/health", { auth: false });
+  }
+
+  function signup() {
+    request("POST", "/api/auth/signup", {
+      auth: false,
+      body: { id: $("id").value, password: $("password").value }
+    });
+  }
+
+  async function signin() {
+    const result = await request("POST", "/api/auth/signin", {
+      auth: false,
+      body: { id: $("id").value, password: $("password").value }
+    });
+    const token = result && result.payload && result.payload.data && result.payload.data.accessToken;
+    if (token) {
+      $("token").value = token;
+      localStorage.setItem("apiToken", token);
+    }
+  }
+
+  function me() { request("GET", "/api/auth/me"); }
+  function refresh() { request("POST", "/api/auth/refresh"); }
+  function signout() { request("POST", "/api/auth/signout"); }
+
+  async function getBudget() {
+    const result = await request("GET", "/api/budget");
+    if (result.ok && result.payload && result.payload.data && result.payload.data.budget) {
+      fillBudgetForm(result.payload.data.budget);
+      setStatus(result.status + " OK · 폼에 불러왔습니다", true);
+    }
+  }
+
+  function putBudget() {
+    request("PUT", "/api/budget", { body: buildBudgetPayload() });
+  }
+
+  function clearToken() {
+    $("token").value = "";
+    localStorage.removeItem("apiToken");
+    setStatus("토큰을 지웠습니다.", null);
+  }
+
+  function restore() {
+    $("token").value = localStorage.getItem("apiToken") || "";
+  }
+
+  $("btn-health").addEventListener("click", health);
+  $("btn-signup").addEventListener("click", signup);
+  $("btn-signin").addEventListener("click", signin);
+  $("btn-me").addEventListener("click", me);
+  $("btn-refresh").addEventListener("click", refresh);
+  $("btn-signout").addEventListener("click", signout);
+  $("btn-budget-get").addEventListener("click", getBudget);
+  $("btn-budget-put").addEventListener("click", putBudget);
+  $("btn-clear-token").addEventListener("click", clearToken);
+  $("btn-add-resource").addEventListener("click", function () { addResource(); });
+  $("btn-add-note").addEventListener("click", function () { addNote(); });
+  $("token").addEventListener("input", function (e) {
+    localStorage.setItem("apiToken", e.target.value);
+  });
+
+  restore();
+  fillBudgetForm({
+    limit: 60,
+    purpose: "",
+    resources: [{ name: "web-server", type: "EC2", unit: "hour", cost: 70.08, usage: "<5%", need: "대부분 유휴", meta: "EC2 · m5.large · 730 시간" }],
+    notes: {}
+  });
+})();
+</script>
+</body>
+</html>
