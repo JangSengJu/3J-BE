@@ -23,3 +23,6 @@ jwt:
   secret: ${JWT_SECRET}
   access-expiration: ${JWT_ACCESS_TTL:30m}
   refresh-expiration: ${JWT_REFRESH_TTL:14d}
+gemini:
+  api-key: ${GEMINI_API_KEY:}
+  model: ${GEMINI_MODEL:gemini-3.6-flash}
