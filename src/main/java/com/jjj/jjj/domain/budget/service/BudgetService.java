@@ -28,6 +28,7 @@ public class BudgetService {
     private static final int MAX_META = 200;
     private static final int MAX_NOTE = 500;
     private static final int MAX_PURPOSE = 1000;
+    private static final BigDecimal MAX_COST = new BigDecimal("9999999999.99");
 
     private static final Set<String> UNITS = Set.of(
             "hour", "lcu_hour", "month", "gb_month", "gb_transfer",
@@ -133,10 +134,16 @@ public class BudgetService {
     }
 
     private BigDecimal normalizeCost(BigDecimal cost) {
+        BigDecimal zero = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         if (cost == null) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            return zero;
         }
-        return cost.setScale(2, RoundingMode.HALF_UP);
+
+        BigDecimal rounded = cost.setScale(2, RoundingMode.HALF_UP);
+        if (rounded.abs().compareTo(MAX_COST) > 0) {
+            return zero;
+        }
+        return rounded;
     }
 
     private static String normalizeText(String value, int maxLength) {

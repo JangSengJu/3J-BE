@@ -229,6 +229,52 @@ class BudgetControllerTest {
     }
 
     @Test
+    @DisplayName("cost는 precision/scale 범위를 넘으면 0으로 저장한다")
+    void saveBudgetClampsOutOfRangeCost() throws Exception {
+        String id = uniqueId();
+        signUp(id);
+
+        List<Map<String, Object>> resources = List.of(
+                Map.of("name", "too-big", "cost", "99999999999.99"),
+                Map.of("name", "round-overflow", "cost", "9999999999.999")
+        );
+
+        MvcResult result = mockMvc.perform(put("/api/budget")
+                        .header("Authorization", "Bearer " + accessToken(id))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(Map.of("resources", resources))))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode saved = tree(result).get("data").get("budget").get("resources");
+        assertThat(saved.get(0).get("cost").asDouble()).isEqualTo(0.0);
+        assertThat(saved.get(1).get("cost").asDouble()).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("cost는 범위 내 값을 소수 2자리로 반올림해 저장한다")
+    void saveBudgetKeepsInRangeCost() throws Exception {
+        String id = uniqueId();
+        signUp(id);
+
+        List<Map<String, Object>> resources = List.of(
+                Map.of("name", "max", "cost", "9999999999.99"),
+                Map.of("name", "round", "cost", "70.085")
+        );
+
+        MvcResult result = mockMvc.perform(put("/api/budget")
+                        .header("Authorization", "Bearer " + accessToken(id))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(Map.of("resources", resources))))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode saved = tree(result).get("data").get("budget").get("resources");
+        assertThat(saved.get(0).get("cost").asDouble()).isEqualTo(9999999999.99);
+        assertThat(saved.get(1).get("cost").asDouble()).isEqualTo(70.09);
+    }
+
+    @Test
     @DisplayName("인증 없이 예산을 조회하거나 저장하면 401을 반환한다")
     void budgetUnauthorized() throws Exception {
         mockMvc.perform(get("/api/budget"))
