@@ -122,6 +122,35 @@ class BudgetControllerTest {
     }
 
     @Test
+    @DisplayName("리소스 누락 필드는 기본값으로 정규화한다")
+    void saveBudgetAppliesResourceDefaults() throws Exception {
+        String id = uniqueId();
+        signUp(id);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("resources", List.of(
+                Map.of("name", "svc-a"),
+                Map.of("name", "svc-b", "unit", "unknown-unit")
+        ));
+
+        mockMvc.perform(put("/api/budget")
+                        .header("Authorization", "Bearer " + accessToken(id))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(payload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.budget.resources.length()").value(2))
+                .andExpect(jsonPath("$.data.budget.resources[0].id").value("r-1"))
+                .andExpect(jsonPath("$.data.budget.resources[0].type").value("기타"))
+                .andExpect(jsonPath("$.data.budget.resources[0].unit").value("month"))
+                .andExpect(jsonPath("$.data.budget.resources[0].cost").value(0))
+                .andExpect(jsonPath("$.data.budget.resources[0].usage").value("미상"))
+                .andExpect(jsonPath("$.data.budget.resources[0].need").value("미상"))
+                .andExpect(jsonPath("$.data.budget.resources[0].meta").value(""))
+                .andExpect(jsonPath("$.data.budget.resources[1].id").value("r-2"))
+                .andExpect(jsonPath("$.data.budget.resources[1].unit").value("month"));
+    }
+
+    @Test
     @DisplayName("limit이 양수가 아니면 기존 값을 유지한다")
     void saveBudgetKeepsExistingLimit() throws Exception {
         String id = uniqueId();
