@@ -12,6 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import jakarta.persistence.EntityManager;
+
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -36,6 +38,9 @@ class BudgetControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private EntityManager entityManager;
 
     private String uniqueId() {
         return "user-" + UUID.randomUUID().toString().substring(0, 8) + "@dsm.kr";
@@ -102,6 +107,9 @@ class BudgetControllerTest {
                 .andExpect(jsonPath("$.data.budget.resources[0].usage").value("<5%"))
                 .andExpect(jsonPath("$.data.budget.limit").value(60))
                 .andExpect(jsonPath("$.data.budget.purpose").value("고객용 웹 서비스 운영"));
+
+        entityManager.flush();
+        entityManager.clear();
 
         mockMvc.perform(get("/api/budget")
                         .header("Authorization", "Bearer " + token))

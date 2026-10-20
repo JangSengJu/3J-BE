@@ -28,10 +28,10 @@ public class BudgetResource {
     @Column(precision = 12, scale = 2)
     private BigDecimal cost;
 
-    @Column(length = 120)
+    @Column(name = "resource_usage", length = 120)
     private String usage;
 
-    @Column(length = 120)
+    @Column(name = "resource_need", length = 120)
     private String need;
 
     @Column(length = 200)
