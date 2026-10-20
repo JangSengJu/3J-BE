@@ -51,6 +51,11 @@ public class SecurityConfig {
                             "/api/auth/refresh",
                             "/api/auth/signout"
                         ).permitAll()
+                        .requestMatchers(
+                            "/",
+                            "/test/**",
+                            "/favicon.ico"
+                        ).permitAll()
                         .anyRequest().authenticated()
                 )
 
