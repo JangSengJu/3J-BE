@@ -8,6 +8,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
@@ -22,6 +23,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -49,6 +54,8 @@ public class GeminiApiClient implements GeminiClient {
     private final String baseUrl;
     private final Duration timeout;
     private final Duration deadline;
+    private final Duration streamIdleTimeout;
+    private final ScheduledExecutorService idleWatchdog;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
@@ -59,6 +66,7 @@ public class GeminiApiClient implements GeminiClient {
             @Value("${gemini.base-url:https://generativelanguage.googleapis.com/v1beta}") String baseUrl,
             @Value("${gemini.timeout:60s}") Duration timeout,
             @Value("${gemini.deadline:30s}") Duration deadline,
+            @Value("${gemini.stream-idle-timeout:30s}") Duration streamIdleTimeout,
             ObjectMapper objectMapper
     ) {
         this.apiKey = apiKey == null ? "" : apiKey.trim();
@@ -66,10 +74,18 @@ public class GeminiApiClient implements GeminiClient {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.timeout = timeout;
         this.deadline = deadline;
+        this.streamIdleTimeout = streamIdleTimeout;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
+        ScheduledThreadPoolExecutor watchdog = new ScheduledThreadPoolExecutor(1, runnable -> {
+            Thread thread = new Thread(runnable, "gemini-stream-idle-guard");
+            thread.setDaemon(true);
+            return thread;
+        });
+        watchdog.setRemoveOnCancelPolicy(true);
+        this.idleWatchdog = watchdog;
     }
 
     private static String resolveFreeModel(String configured, List<String> allowedModels) {
@@ -184,25 +200,49 @@ public class GeminiApiClient implements GeminiClient {
 
             try (InputStream input = response.body();
                  BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (!line.startsWith("data:")) {
-                        continue;
-                    }
-                    String data = line.substring("data:".length()).trim();
-                    if (data.isEmpty() || "[DONE]".equals(data)) {
-                        continue;
-                    }
+                ScheduledFuture<?> idleGuard = scheduleIdleGuard(input);
+                try {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        idleGuard = renewIdleGuard(idleGuard, input);
+                        if (!line.startsWith("data:")) {
+                            continue;
+                        }
+                        String data = line.substring("data:".length()).trim();
+                        if (data.isEmpty() || "[DONE]".equals(data)) {
+                            continue;
+                        }
 
-                    String delta = extractText(objectMapper.readTree(data), false);
-                    if (!delta.isEmpty()) {
-                        onDelta.accept(delta);
+                        String delta = extractText(objectMapper.readTree(data), false);
+                        if (!delta.isEmpty()) {
+                            onDelta.accept(delta);
+                        }
                     }
+                } finally {
+                    idleGuard.cancel(false);
+                    closeQuietly(input);
                 }
             }
             return;
         }
         throw lastError;
+    }
+
+    private ScheduledFuture<?> scheduleIdleGuard(InputStream input) {
+        return idleWatchdog.schedule(() -> closeQuietly(input), streamIdleTimeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    private ScheduledFuture<?> renewIdleGuard(ScheduledFuture<?> previous, InputStream input) {
+        previous.cancel(false);
+        return scheduleIdleGuard(input);
+    }
+
+    private static void closeQuietly(InputStream input) {
+        try {
+            input.close();
+        } catch (IOException ignored) {
+            // stream already closed
+        }
     }
 
     private static boolean isRetryable(int statusCode) {

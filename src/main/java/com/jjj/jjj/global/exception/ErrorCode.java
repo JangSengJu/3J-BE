@@ -20,6 +20,8 @@ public enum ErrorCode {
 
     DUPLICATED_USERNAME(409, "DUPLICATED_USERNAME", "이미 가입된 아이디입니다."),
 
+    SERVICE_UNAVAILABLE(503, "SERVICE_UNAVAILABLE", "AI 요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+
     INTERNAL_SERVER_ERR(500, "INTERNAL_SERVER_ERR", "서버 측 오류가 발생했습니다.");
 
     private Integer statusCode;

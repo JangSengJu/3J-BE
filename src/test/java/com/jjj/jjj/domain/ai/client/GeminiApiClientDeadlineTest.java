@@ -26,6 +26,10 @@ class GeminiApiClientDeadlineTest {
     }
 
     private GeminiApiClient client(Duration timeout, Duration deadline, long delayMillis) throws IOException {
+        return client(timeout, deadline, Duration.ofSeconds(30), delayMillis);
+    }
+
+    private GeminiApiClient client(Duration timeout, Duration deadline, Duration idleTimeout, long delayMillis) throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1beta/models/gemini-3.8-flash:generateContent", exchange -> {
             try {
@@ -48,6 +52,7 @@ class GeminiApiClientDeadlineTest {
                 "http://127.0.0.1:" + server.getAddress().getPort() + "/v1beta",
                 timeout,
                 deadline,
+                idleTimeout,
                 new ObjectMapper()
         );
     }

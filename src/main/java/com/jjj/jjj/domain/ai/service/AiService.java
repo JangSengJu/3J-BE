@@ -6,6 +6,8 @@ import com.jjj.jjj.domain.ai.dto.AiRecommendation;
 import com.jjj.jjj.domain.ai.dto.AiResource;
 import com.jjj.jjj.domain.ai.dto.request.ReportRequest;
 import com.jjj.jjj.domain.ai.dto.response.RecommendResponse;
+import com.jjj.jjj.global.exception.BusinessException;
+import com.jjj.jjj.global.exception.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -25,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -147,7 +150,13 @@ public class AiService {
                 || recommendations.isEmpty()
                 || !geminiClient.isAvailable();
 
-        executor.execute(() -> executeReport(emitter, input, resources, recommendations, cancelled, fallbackNeeded));
+        try {
+            executor.execute(() -> executeReport(emitter, input, resources, recommendations, cancelled, fallbackNeeded));
+        } catch (RejectedExecutionException e) {
+            log.warn("AI report rejected, executor is saturated: {}", e.getMessage());
+            emitter.completeWithError(e);
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE);
+        }
         return emitter;
     }
 
