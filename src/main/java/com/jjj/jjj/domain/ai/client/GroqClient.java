@@ -2,7 +2,7 @@ package com.jjj.jjj.domain.ai.client;
 
 import java.util.function.Consumer;
 
-public interface GeminiClient {
+public interface GroqClient {
 
     boolean isAvailable();
 

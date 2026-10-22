@@ -1,6 +1,6 @@
 package com.jjj.jjj.domain.ai;
 
-import com.jjj.jjj.domain.ai.client.GeminiClient;
+import com.jjj.jjj.domain.ai.client.GroqClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -35,7 +35,7 @@ class AiCapacityControllerTest {
     private ObjectMapper objectMapper;
 
     @MockitoBean
-    private GeminiClient geminiClient;
+    private GroqClient groqClient;
 
     @MockitoBean(name = "aiExecutor")
     private ExecutorService aiExecutor;

@@ -1,6 +1,6 @@
 package com.jjj.jjj.domain.ai.service;
 
-import com.jjj.jjj.domain.ai.client.GeminiClient;
+import com.jjj.jjj.domain.ai.client.GroqClient;
 import com.jjj.jjj.domain.ai.dto.AiInput;
 import com.jjj.jjj.domain.ai.dto.AiRecommendation;
 import com.jjj.jjj.domain.ai.dto.AiResource;
@@ -92,16 +92,16 @@ public class AiService {
             제공된 데이터에 없는 내용은 추측하지 말고 간결하게 작성하세요.
             """;
 
-    private final GeminiClient geminiClient;
+    private final GroqClient groqClient;
     private final ExecutorService executor;
     private final ObjectMapper objectMapper;
 
     public AiService(
-            GeminiClient geminiClient,
+            GroqClient groqClient,
             @Qualifier("aiExecutor") ExecutorService executor,
             ObjectMapper objectMapper
     ) {
-        this.geminiClient = geminiClient;
+        this.groqClient = groqClient;
         this.executor = executor;
         this.objectMapper = objectMapper;
     }
@@ -109,19 +109,19 @@ public class AiService {
     public RecommendResponse recommend(AiInput input) {
         List<AiResource> resources = sanitizeResources(input == null ? null : input.resources());
 
-        if (resources.isEmpty() || !geminiClient.isAvailable()) {
+        if (resources.isEmpty() || !groqClient.isAvailable()) {
             return new RecommendResponse(ruleBased(input, resources), true);
         }
 
         try {
-            String raw = geminiClient.generateJson(RECOMMEND_SYSTEM, buildRecommendPrompt(input, resources));
+            String raw = groqClient.generateJson(RECOMMEND_SYSTEM, buildRecommendPrompt(input, resources));
             List<AiRecommendation> recommendations = normalizeRecommendations(parseRecommendations(raw));
             if (recommendations.isEmpty()) {
                 return new RecommendResponse(ruleBased(input, resources), true);
             }
             return new RecommendResponse(recommendations, false);
         } catch (Exception e) {
-            log.warn("Gemini recommend failed, using rule-based fallback: {}", e.getMessage());
+            log.warn("Groq recommend failed, using rule-based fallback: {}", e.getMessage());
             return new RecommendResponse(ruleBased(input, resources), true);
         }
     }
@@ -148,7 +148,7 @@ public class AiService {
         boolean fallbackNeeded = input == null
                 || resources.isEmpty()
                 || recommendations.isEmpty()
-                || !geminiClient.isAvailable();
+                || !groqClient.isAvailable();
 
         try {
             executor.execute(() -> executeReport(emitter, input, resources, recommendations, cancelled, fallbackNeeded));
@@ -208,7 +208,7 @@ public class AiService {
         boolean failed = false;
 
         try {
-            geminiClient.streamMarkdown(REPORT_SYSTEM, buildReportPrompt(input, resources, recommendations), delta -> {
+            groqClient.streamMarkdown(REPORT_SYSTEM, buildReportPrompt(input, resources, recommendations), delta -> {
                 if (cancelled.get()) {
                     throw new CancellationException("client disconnected");
                 }
@@ -219,7 +219,7 @@ public class AiService {
             throw e;
         } catch (Exception e) {
             failed = true;
-            log.warn("Gemini report streaming failed: {}", e.getMessage());
+            log.warn("Groq report streaming failed: {}", e.getMessage());
         }
 
         if (cancelled.get()) {
@@ -579,6 +579,11 @@ public class AiService {
     }
 
     private String buildRecommendPrompt(AiInput input, List<AiResource> resources) {
+        return buildDataPrompt(input, resources)
+                + "\n위 데이터를 분석해 절감 추천을 JSON으로만 응답하세요.";
+    }
+
+    private String buildDataPrompt(AiInput input, List<AiResource> resources) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("월 예산 한도: ")
                 .append(input == null || input.limit() == null ? "미설정" : input.limit())
@@ -591,12 +596,11 @@ public class AiService {
                 .append("\n\n");
 
         appendResources(prompt, resources);
-        prompt.append("\n위 데이터를 분석해 절감 추천을 JSON으로만 응답하세요.");
         return prompt.toString();
     }
 
     private String buildReportPrompt(AiInput input, List<AiResource> resources, List<AiRecommendation> recommendations) {
-        StringBuilder prompt = new StringBuilder(buildRecommendPrompt(input, resources));
+        StringBuilder prompt = new StringBuilder(buildDataPrompt(input, resources));
         prompt.append("\n\n추천 결과:\n");
         for (int i = 0; i < recommendations.size(); i++) {
             AiRecommendation recommendation = recommendations.get(i);

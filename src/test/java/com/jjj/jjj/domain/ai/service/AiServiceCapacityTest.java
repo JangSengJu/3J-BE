@@ -1,6 +1,6 @@
 package com.jjj.jjj.domain.ai.service;
 
-import com.jjj.jjj.domain.ai.client.GeminiClient;
+import com.jjj.jjj.domain.ai.client.GroqClient;
 import com.jjj.jjj.domain.ai.dto.AiInput;
 import com.jjj.jjj.domain.ai.dto.AiRecommendation;
 import com.jjj.jjj.domain.ai.dto.AiResource;
@@ -28,8 +28,8 @@ class AiServiceCapacityTest {
     @Test
     @DisplayName("작업 스레드가 포화되면 503으로 거절한다")
     void reportRejectedWhenExecutorSaturated() {
-        GeminiClient geminiClient = mock(GeminiClient.class);
-        when(geminiClient.isAvailable()).thenReturn(true);
+        GroqClient groqClient = mock(GroqClient.class);
+        when(groqClient.isAvailable()).thenReturn(true);
 
         ExecutorService rejecting = new ThreadPoolExecutor(
                 1, 1, 0L, TimeUnit.MILLISECONDS,
@@ -42,7 +42,7 @@ class AiServiceCapacityTest {
             }
         };
 
-        AiService aiService = new AiService(geminiClient, rejecting, new ObjectMapper());
+        AiService aiService = new AiService(groqClient, rejecting, new ObjectMapper());
 
         ReportRequest request = new ReportRequest(
                 new AiInput(60, new BigDecimal("100.00"), "테스트", List.of(

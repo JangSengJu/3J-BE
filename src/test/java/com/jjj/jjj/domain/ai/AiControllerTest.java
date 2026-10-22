@@ -1,6 +1,6 @@
 package com.jjj.jjj.domain.ai;
 
-import com.jjj.jjj.domain.ai.client.GeminiClient;
+import com.jjj.jjj.domain.ai.client.GroqClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -40,7 +40,7 @@ class AiControllerTest {
     private ObjectMapper objectMapper;
 
     @MockitoBean
-    private GeminiClient geminiClient;
+    private GroqClient groqClient;
 
     private String uniqueId() {
         return "user-" + UUID.randomUUID().toString().substring(0, 8);
@@ -83,11 +83,11 @@ class AiControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/ai/recommend는 Gemini 결과를 정규화한다")
-    void recommendNormalizesFromGemini() throws Exception {
+    @DisplayName("POST /api/ai/recommend는 AI 결과를 정규화한다")
+    void recommendNormalizesFromAiResult() throws Exception {
         String token = auth(uniqueId());
-        Mockito.when(geminiClient.isAvailable()).thenReturn(true);
-        Mockito.when(geminiClient.generateJson(anyString(), anyString())).thenReturn(
+        Mockito.when(groqClient.isAvailable()).thenReturn(true);
+        Mockito.when(groqClient.generateJson(anyString(), anyString())).thenReturn(
                 "{\"recommendations\":[{\"title\":\"테스트\",\"target\":\"vm-a\",\"savings\":50,\"grounds\":[\"과부하 낮음\"],\"action\":\"DOWNSIZING\",\"kind\":\"COST\"}]}"
         );
 
@@ -122,12 +122,12 @@ class AiControllerTest {
     @DisplayName("POST /api/ai/report는 SSE로 조각을 보내고 결론을 보강한다")
     void reportStreamsMissingConclusion() throws Exception {
         String token = auth(uniqueId());
-        Mockito.when(geminiClient.isAvailable()).thenReturn(true);
+        Mockito.when(groqClient.isAvailable()).thenReturn(true);
         Mockito.doAnswer(invocation -> {
             Consumer<String> onDelta = invocation.getArgument(2);
             onDelta.accept("# 보고서\n\n## 1. 요약\n요약 내용\n");
             return null;
-        }).when(geminiClient).streamMarkdown(anyString(), anyString(), any());
+        }).when(groqClient).streamMarkdown(anyString(), anyString(), any());
 
         String payload = body(Map.of(
                 "input", Map.of("resources", List.of(Map.of(
@@ -160,12 +160,12 @@ class AiControllerTest {
     @DisplayName("POST /api/ai/report는 스트림이 중간에 실패하면 DONE 없이 오류로 끝난다")
     void reportFailsWhenStreamBreaksMidway() throws Exception {
         String token = auth(uniqueId());
-        Mockito.when(geminiClient.isAvailable()).thenReturn(true);
+        Mockito.when(groqClient.isAvailable()).thenReturn(true);
         Mockito.doAnswer(invocation -> {
             Consumer<String> onDelta = invocation.getArgument(2);
             onDelta.accept("# 보고서\n\n## 1. 요약\n요약 내용\n");
             throw new IOException("stream closed unexpectedly");
-        }).when(geminiClient).streamMarkdown(anyString(), anyString(), any());
+        }).when(groqClient).streamMarkdown(anyString(), anyString(), any());
 
         String payload = body(Map.of(
                 "input", Map.of("resources", List.of(Map.of(
@@ -197,7 +197,7 @@ class AiControllerTest {
     @DisplayName("POST /api/ai/report는 키가 없으면 4줄 폴백을 스트리밍한다")
     void reportFallbackWhenNoKey() throws Exception {
         String token = auth(uniqueId());
-        Mockito.when(geminiClient.isAvailable()).thenReturn(false);
+        Mockito.when(groqClient.isAvailable()).thenReturn(false);
 
         String payload = body(Map.of(
                 "input", Map.of("resources", List.of(Map.of(
@@ -230,7 +230,7 @@ class AiControllerTest {
     @DisplayName("POST /api/ai/recommend는 키가 없으면 룰 기반 폴백한다")
     void recommendFallbackWhenNoKey() throws Exception {
         String token = auth(uniqueId());
-        Mockito.when(geminiClient.isAvailable()).thenReturn(false);
+        Mockito.when(groqClient.isAvailable()).thenReturn(false);
 
         String payload = body(Map.of(
                 "input", Map.of(

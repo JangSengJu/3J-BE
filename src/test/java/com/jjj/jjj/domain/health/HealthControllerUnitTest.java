@@ -10,19 +10,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class HealthControllerUnitTest {
 
     @Test
-    @DisplayName("Gemini 키가 설정되면 gemini=true를 반환한다")
-    void geminiConfigured() {
+    @DisplayName("Groq 키가 설정되면 groq=true를 반환한다")
+    void groqConfigured() {
         HealthResponse response = bodyOf(new HealthController("test-key"));
 
         assertThat(response.ok()).isTrue();
-        assertThat(response.gemini()).isTrue();
+        assertThat(response.groq()).isTrue();
     }
 
     @Test
-    @DisplayName("Gemini 키가 없거나 비어 있으면 gemini=false를 반환한다")
-    void geminiMissing() {
-        assertThat(bodyOf(new HealthController("")).gemini()).isFalse();
-        assertThat(bodyOf(new HealthController(null)).gemini()).isFalse();
+    @DisplayName("Groq 키가 없거나 비어 있으면 groq=false를 반환한다")
+    void groqMissing() {
+        assertThat(bodyOf(new HealthController("")).groq()).isFalse();
+        assertThat(bodyOf(new HealthController(null)).groq()).isFalse();
     }
 
     private HealthResponse bodyOf(HealthController controller) {

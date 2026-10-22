@@ -16,7 +16,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class GeminiApiClientStreamTest {
+class GroqApiClientStreamTest {
 
     private HttpServer server;
 
@@ -27,10 +27,10 @@ class GeminiApiClientStreamTest {
         }
     }
 
-    private GeminiApiClient client(Duration idleTimeout) throws IOException {
+    private GroqApiClient client(Duration idleTimeout) throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.setExecutor(null);
-        server.createContext("/v1beta/models/gemini-3.8-flash:streamGenerateContent", exchange -> {
+        server.createContext("/v1/chat/completions", exchange -> {
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
             exchange.sendResponseHeaders(200, 0);
             // 응답 헤더만 보내고 데이터는 보내지 않는다 (스트림 정지 상태)
@@ -43,11 +43,11 @@ class GeminiApiClientStreamTest {
         });
         server.start();
 
-        return new GeminiApiClient(
+        return new GroqApiClient(
                 "test-key",
-                "gemini-3.8-flash",
-                List.of("gemini-3.8-flash"),
-                "http://127.0.0.1:" + server.getAddress().getPort() + "/v1beta",
+                "openai/gpt-oss-120b",
+                List.of("openai/gpt-oss-120b"),
+                "http://127.0.0.1:" + server.getAddress().getPort() + "/v1",
                 Duration.ofSeconds(30),
                 Duration.ofSeconds(30),
                 idleTimeout,
@@ -58,7 +58,7 @@ class GeminiApiClientStreamTest {
     @Test
     @DisplayName("데이터가 오지 않으면 유휴 제한 시간 후 스트림을 닫는다")
     void idleStreamIsClosed() throws Exception {
-        GeminiApiClient client = client(Duration.ofMillis(500));
+        GroqApiClient client = client(Duration.ofMillis(500));
 
         long started = System.currentTimeMillis();
         assertThatThrownBy(() -> client.streamMarkdown("system", "prompt", delta -> { }))
@@ -70,21 +70,21 @@ class GeminiApiClientStreamTest {
     @DisplayName("스트림이 정상 종료되면 유휴 감시 자원을 정리한다")
     void streamCompletesNormally() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1beta/models/gemini-3.8-flash:streamGenerateContent", exchange -> {
+        server.createContext("/v1/chat/completions", exchange -> {
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
             exchange.sendResponseHeaders(200, 0);
-            exchange.getResponseBody().write("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}]}\n\n"
+            exchange.getResponseBody().write("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n"
                     .getBytes(StandardCharsets.UTF_8));
             exchange.getResponseBody().flush();
             exchange.close();
         });
         server.start();
 
-        GeminiApiClient client = new GeminiApiClient(
+        GroqApiClient client = new GroqApiClient(
                 "test-key",
-                "gemini-3.8-flash",
-                List.of("gemini-3.8-flash"),
-                "http://127.0.0.1:" + server.getAddress().getPort() + "/v1beta",
+                "openai/gpt-oss-120b",
+                List.of("openai/gpt-oss-120b"),
+                "http://127.0.0.1:" + server.getAddress().getPort() + "/v1",
                 Duration.ofSeconds(30),
                 Duration.ofSeconds(30),
                 Duration.ofSeconds(30),

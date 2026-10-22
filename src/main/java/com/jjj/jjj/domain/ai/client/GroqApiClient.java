@@ -18,35 +18,30 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Component
-public class GeminiApiClient implements GeminiClient {
+public class GroqApiClient implements GroqClient {
 
-    private static final Logger log = LoggerFactory.getLogger(GeminiApiClient.class);
+    private static final Logger log = LoggerFactory.getLogger(GroqApiClient.class);
 
-    private static final String DEFAULT_FREE_MODEL = "gemini-3.8-flash";
+    private static final String DEFAULT_FREE_MODEL = "openai/gpt-oss-120b";
     private static final int MAX_ATTEMPTS = 3;
     private static final Set<String> DEFAULT_FREE_MODELS = Set.of(
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite",
-            "gemini-3-flash-preview",
-            "gemini-flash-latest",
-            "gemini-flash-lite-latest"
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.8-27b"
     );
 
     private final String apiKey;
@@ -59,14 +54,14 @@ public class GeminiApiClient implements GeminiClient {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    public GeminiApiClient(
-            @Value("${gemini.api-key:}") String apiKey,
-            @Value("${gemini.model:" + DEFAULT_FREE_MODEL + "}") String model,
-            @Value("${gemini.allowed-models:}") List<String> allowedModels,
-            @Value("${gemini.base-url:https://generativelanguage.googleapis.com/v1beta}") String baseUrl,
-            @Value("${gemini.timeout:60s}") Duration timeout,
-            @Value("${gemini.deadline:30s}") Duration deadline,
-            @Value("${gemini.stream-idle-timeout:30s}") Duration streamIdleTimeout,
+    public GroqApiClient(
+            @Value("${groq.api-key:}") String apiKey,
+            @Value("${groq.model:" + DEFAULT_FREE_MODEL + "}") String model,
+            @Value("${groq.allowed-models:}") List<String> allowedModels,
+            @Value("${groq.base-url:https://api.groq.com/openai/v1}") String baseUrl,
+            @Value("${groq.timeout:60s}") Duration timeout,
+            @Value("${groq.deadline:30s}") Duration deadline,
+            @Value("${groq.stream-idle-timeout:30s}") Duration streamIdleTimeout,
             ObjectMapper objectMapper
     ) {
         this.apiKey = apiKey == null ? "" : apiKey.trim();
@@ -80,7 +75,7 @@ public class GeminiApiClient implements GeminiClient {
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         ScheduledThreadPoolExecutor watchdog = new ScheduledThreadPoolExecutor(1, runnable -> {
-            Thread thread = new Thread(runnable, "gemini-stream-idle-guard");
+            Thread thread = new Thread(runnable, "groq-stream-idle-guard");
             thread.setDaemon(true);
             return thread;
         });
@@ -105,7 +100,7 @@ public class GeminiApiClient implements GeminiClient {
 
         String fallback = allowed.contains(DEFAULT_FREE_MODEL) ? DEFAULT_FREE_MODEL : allowed.iterator().next();
         if (!requested.isEmpty()) {
-            log.warn("Gemini model '{}' is not in the free-tier allowlist. Using '{}' instead.", requested, fallback);
+            log.warn("Groq model '{}' is not in the free-tier allowlist. Using '{}' instead.", requested, fallback);
         }
         return fallback;
     }
@@ -125,17 +120,17 @@ public class GeminiApiClient implements GeminiClient {
         String body = buildBody(systemInstruction, userPrompt, true);
         long deadlineNanos = System.nanoTime() + deadline.toNanos();
 
-        GeminiException lastError = null;
+        GroqException lastError = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             Duration attemptTimeout = remainingTimeout(deadlineNanos);
             if (attemptTimeout == null) {
                 throw deadlineExceeded(lastError);
             }
 
-            HttpRequest request = HttpRequest.newBuilder(endpoint(":generateContent"))
+            HttpRequest request = HttpRequest.newBuilder(endpoint("/chat/completions"))
                     .timeout(attemptTimeout)
                     .header("Content-Type", "application/json")
-                    .header("x-goog-api-key", apiKey)
+                    .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                     .build();
 
@@ -143,7 +138,7 @@ public class GeminiApiClient implements GeminiClient {
             try {
                 response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             } catch (HttpTimeoutException e) {
-                lastError = new GeminiException("Gemini 요청이 시간 초과되었습니다. timeout=" + attemptTimeout, e);
+                lastError = new GroqException("Groq 요청이 시간 초과되었습니다. timeout=" + attemptTimeout, e);
                 if (attempt == MAX_ATTEMPTS || !sleepWithinDeadline(attempt, deadlineNanos)) {
                     throw lastError;
                 }
@@ -151,7 +146,7 @@ public class GeminiApiClient implements GeminiClient {
             }
 
             if (response.statusCode() != 200) {
-                lastError = new GeminiException("Gemini 요청에 실패했습니다. status=" + response.statusCode()
+                lastError = new GroqException("Groq 요청에 실패했습니다. status=" + response.statusCode()
                         + describe(response.body()));
                 if (!isRetryable(response.statusCode()) || attempt == MAX_ATTEMPTS
                         || !sleepWithinDeadline(attempt, deadlineNanos)) {
@@ -160,9 +155,9 @@ public class GeminiApiClient implements GeminiClient {
                 continue;
             }
 
-            String text = extractText(objectMapper.readTree(response.body()), true);
+            String text = extractText(objectMapper.readTree(response.body()));
             if (text.isBlank()) {
-                throw new GeminiException("Gemini 응답이 비어 있습니다.");
+                throw new GroqException("Groq 응답이 비어 있습니다.");
             }
             return text;
         }
@@ -173,12 +168,13 @@ public class GeminiApiClient implements GeminiClient {
     public void streamMarkdown(String systemInstruction, String userPrompt, Consumer<String> onDelta) throws Exception {
         String body = buildBody(systemInstruction, userPrompt, false);
 
-        GeminiException lastError = null;
+        GroqException lastError = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            HttpRequest request = HttpRequest.newBuilder(endpoint(":streamGenerateContent", "alt=sse"))
+            HttpRequest request = HttpRequest.newBuilder(endpoint("/chat/completions"))
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
-                    .header("x-goog-api-key", apiKey)
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Accept", "text/event-stream")
                     .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                     .build();
 
@@ -189,7 +185,7 @@ public class GeminiApiClient implements GeminiClient {
                      BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
                     error = reader.lines().limit(20).collect(Collectors.joining("\n"));
                 }
-                lastError = new GeminiException("Gemini 스트리밍 요청에 실패했습니다. status=" + response.statusCode()
+                lastError = new GroqException("Groq 스트리밍 요청에 실패했습니다. status=" + response.statusCode()
                         + describe(error));
                 if (!isRetryable(response.statusCode()) || attempt == MAX_ATTEMPTS) {
                     throw lastError;
@@ -213,7 +209,7 @@ public class GeminiApiClient implements GeminiClient {
                             continue;
                         }
 
-                        String delta = extractText(objectMapper.readTree(data), false);
+                        String delta = extractDelta(objectMapper.readTree(data));
                         if (!delta.isEmpty()) {
                             onDelta.accept(delta);
                         }
@@ -267,8 +263,8 @@ public class GeminiApiClient implements GeminiClient {
         return true;
     }
 
-    private GeminiException deadlineExceeded(GeminiException lastError) {
-        return new GeminiException("Gemini 요청이 데드라인(" + deadline + ")을 초과했습니다."
+    private GroqException deadlineExceeded(GroqException lastError) {
+        return new GroqException("Groq 요청이 데드라인(" + deadline + ")을 초과했습니다."
                 + (lastError == null ? "" : " 마지막 오류: " + lastError.getMessage()));
     }
 
@@ -284,57 +280,55 @@ public class GeminiApiClient implements GeminiClient {
         Thread.sleep(500L * attempt);
     }
 
-    private URI endpoint(String method) {
-        return endpoint(method, null);
-    }
-
-    private URI endpoint(String method, String query) {
-        String url = baseUrl + "/models/" + model + method;
-        if (query != null && !query.isBlank()) {
-            url = url + "?" + query;
-        }
-        return URI.create(url);
+    private URI endpoint(String path) {
+        return URI.create(baseUrl + path);
     }
 
     private String buildBody(String systemInstruction, String userPrompt, boolean json) throws Exception {
-        Map<String, Object> generationConfig = new LinkedHashMap<>();
-        generationConfig.put("temperature", json ? 0.2 : 0.4);
-        generationConfig.put("maxOutputTokens", json ? 4096 : 8192);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("temperature", json ? 0.2 : 0.4);
+        body.put("max_tokens", 8192);
+        body.put("stream", !json);
         if (json) {
-            generationConfig.put("responseMimeType", "application/json");
+            body.put("response_format", Map.of("type", "json_object"));
         }
 
-        Map<String, Object> body = new LinkedHashMap<>();
+        List<Map<String, String>> messages = new ArrayList<>();
         if (systemInstruction != null && !systemInstruction.isBlank()) {
-            body.put("systemInstruction", Map.of("parts", List.of(Map.of("text", systemInstruction))));
+            messages.add(Map.of("role", "system", "content", systemInstruction));
         }
-        body.put("contents", List.of(Map.of(
-                "role", "user",
-                "parts", List.of(Map.of("text", userPrompt))
-        )));
-        body.put("generationConfig", generationConfig);
+        messages.add(Map.of("role", "user", "content", userPrompt == null ? "" : userPrompt));
+        body.put("messages", messages);
 
         return objectMapper.writeValueAsString(body);
     }
 
-    private String extractText(JsonNode root, boolean required) {
-        StringBuilder text = new StringBuilder();
-        JsonNode candidates = root == null ? null : root.get("candidates");
-        if (candidates != null && candidates.isArray()) {
-            for (JsonNode candidate : candidates) {
-                JsonNode parts = candidate.path("content").path("parts");
-                for (JsonNode part : parts) {
-                    JsonNode value = part.get("text");
-                    if (value != null && !value.isNull()) {
-                        text.append(value.asString());
-                    }
+    private String extractText(JsonNode root) {
+        JsonNode message = root == null ? null : root.path("choices").path(0).path("message");
+        JsonNode content = message.path("content");
+        if (content.isTextual()) {
+            return content.asString();
+        }
+        if (content.isArray()) {
+            StringBuilder text = new StringBuilder();
+            for (JsonNode part : content) {
+                JsonNode value = part.get("text");
+                if (value != null && value.isTextual()) {
+                    text.append(value.asString());
                 }
             }
+            return text.toString();
         }
+        throw new GroqException("Groq 응답에 텍스트가 없습니다.");
+    }
 
-        if (required && text.isEmpty()) {
-            throw new GeminiException("Gemini 응답에 텍스트가 없습니다.");
+    private String extractDelta(JsonNode root) {
+        JsonNode delta = root == null ? null : root.path("choices").path(0).path("delta");
+        JsonNode content = delta.path("content");
+        if (content.isTextual()) {
+            return content.asString();
         }
-        return text.toString();
+        return "";
     }
 }
