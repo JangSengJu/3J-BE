@@ -12,14 +12,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/health")
 public class HealthController {
 
-    private final boolean geminiConfigured;
+    private final boolean groqConfigured;
 
-    public HealthController(@Value("${gemini.api-key:}") String geminiApiKey) {
-        this.geminiConfigured = geminiApiKey != null && !geminiApiKey.isBlank();
+    public HealthController(@Value("${groq.api-key:}") String groqApiKey) {
+        this.groqConfigured = groqApiKey != null && !groqApiKey.isBlank();
     }
 
     @GetMapping
     public ResponseEntity<ApiResponse<HealthResponse>> health() {
-        return ResponseEntity.ok(ApiResponse.ok(new HealthResponse(true, geminiConfigured)));
+        return ResponseEntity.ok(ApiResponse.ok(new HealthResponse(true, groqConfigured)));
     }
 }

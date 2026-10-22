@@ -118,6 +118,25 @@
 </fieldset>
 
 <fieldset>
+  <legend>AI 추천 / 리포트 (#9, #10)</legend>
+  <p class="muted" style="margin:0 0 10px;">
+    Budget 폼의 limit · purpose · resources 값을 그대로 사용합니다. 먼저 GET /api/budget 로 불러오면 실제 데이터로 테스트할 수 있습니다.
+  </p>
+  <div style="margin-bottom:12px;">
+    <button id="btn-ai-recommend" type="button">POST /api/ai/recommend (추천 받기)</button>
+    <button id="btn-ai-report" type="button">POST /api/ai/report (SSE 리포트)</button>
+  </div>
+  <div class="stack">
+    <label for="ai-recommendations">recommendations (리포트 요청에 사용 · 추천 결과로 자동 채워짐)</label>
+    <textarea id="ai-recommendations" rows="6" spellcheck="false" placeholder='[{"title":"...","target":"...","savings":0,"grounds":["..."],"action":"downsizing","kind":"cost"}]'></textarea>
+  </div>
+  <div class="stack">
+    <label for="ai-out">리포트 스트림 (SSE)</label>
+    <pre id="ai-out" style="max-height:420px;overflow:auto;white-space:pre-wrap;">버튼을 눌러 리포트를 스트리밍하세요.</pre>
+  </div>
+</fieldset>
+
+<fieldset>
   <legend>응답</legend>
   <div id="status" class="status">아직 요청 없음</div>
   <pre id="out">버튼을 눌러 API를 호출하세요.</pre>
@@ -369,6 +388,87 @@
   $("btn-budget-put").addEventListener("click", putBudget);
   $("btn-clear-token").addEventListener("click", clearToken);
   $("btn-add-resource").addEventListener("click", function () { addResource(); });
+
+  /* ---------- ai ---------- */
+
+  function buildAiInput() {
+    const resources = collectResources().map(function (resource) {
+      const cost = Number(resource.cost);
+      resource.cost = isNaN(cost) ? 0 : cost;
+      delete resource.unit;
+      return resource;
+    });
+    const total = resources.reduce(function (sum, resource) { return sum + resource.cost; }, 0);
+    return {
+      limit: Number($("limit").value) || null,
+      total: total,
+      purpose: $("purpose").value,
+      resources: resources
+    };
+  }
+
+  async function aiRecommend() {
+    const out = $("ai-out");
+    out.textContent = "추천 요청 중...";
+    const result = await request("POST", "/api/ai/recommend", { body: { input: buildAiInput() } });
+    const data = result.payload && result.payload.data;
+    if (result.ok && data && Array.isArray(data.recommendations)) {
+      $("ai-recommendations").value = JSON.stringify(data.recommendations, null, 2);
+      out.textContent = "추천 " + data.recommendations.length + "건 (fallback: " + data.fallback + ")";
+    } else {
+      out.textContent = "추천 실패: HTTP " + result.status;
+    }
+  }
+
+  async function aiReport() {
+    const out = $("ai-out");
+    let recommendations = [];
+    const raw = $("ai-recommendations").value.trim();
+    if (raw) {
+      try {
+        recommendations = JSON.parse(raw);
+      } catch (e) {
+        out.textContent = "recommendations JSON 파싱 실패: " + e.message;
+        return;
+      }
+    }
+    if (!recommendations.length) {
+      out.textContent = "먼저 '추천 받기'로 recommendations 를 채우거나 직접 입력하세요.";
+      return;
+    }
+
+    out.textContent = "";
+    const token = $("token").value.trim();
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = "Bearer " + token;
+
+    try {
+      const res = await fetch(location.origin + "/api/ai/report", {
+        method: "POST",
+        headers: headers,
+        credentials: "include",
+        body: JSON.stringify({ input: buildAiInput(), recommendations: recommendations })
+      });
+      if (!res.ok) {
+        out.textContent = "HTTP " + res.status + " " + (await res.text());
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        out.textContent += decoder.decode(chunk.value, { stream: true });
+        out.scrollTop = out.scrollHeight;
+      }
+      out.textContent += decoder.decode();
+    } catch (error) {
+      out.textContent += "\n[ERROR] " + error.message;
+    }
+  }
+
+  $("btn-ai-recommend").addEventListener("click", aiRecommend);
+  $("btn-ai-report").addEventListener("click", aiReport);
   $("btn-add-note").addEventListener("click", function () { addNote(); });
   $("token").addEventListener("input", function (e) {
     localStorage.setItem("apiToken", e.target.value);

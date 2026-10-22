@@ -3,6 +3,7 @@ package com.jjj.jjj.global.security;
 import com.jjj.jjj.global.security.handler.CustomAccessDeniedHandler;
 import com.jjj.jjj.global.security.handler.CustomAuthenticationEntryPoint;
 import com.jjj.jjj.global.security.jwt.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,6 +40,7 @@ public class SecurityConfig {
                         .sessionCreationPolicy(org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
 
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers(
                             "/swagger-ui.html",
                             "/swagger-ui/**",

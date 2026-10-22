@@ -19,12 +19,12 @@ class HealthControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    @DisplayName("서버 상태와 Gemini 키 유무를 반환한다")
+    @DisplayName("서버 상태와 Groq 키 유무를 반환한다")
     void health() throws Exception {
         mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.ok").value(true))
-                .andExpect(jsonPath("$.data.gemini").isBoolean());
+                .andExpect(jsonPath("$.data.groq").isBoolean());
     }
 }
