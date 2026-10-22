@@ -29,7 +29,8 @@ public class GeminiApiClient implements GeminiClient {
 
     private static final Logger log = LoggerFactory.getLogger(GeminiApiClient.class);
 
-    private static final String DEFAULT_FREE_MODEL = "gemini-3.6-flash";
+    private static final String DEFAULT_FREE_MODEL = "gemini-3.8-flash";
+    private static final int MAX_ATTEMPTS = 3;
     private static final Set<String> DEFAULT_FREE_MODELS = Set.of(
             "gemini-3.8-flash",
             "gemini-3.7-flash",
@@ -101,62 +102,103 @@ public class GeminiApiClient implements GeminiClient {
 
     @Override
     public String generateJson(String systemInstruction, String userPrompt) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(endpoint(":generateContent"))
-                .timeout(timeout)
-                .header("Content-Type", "application/json")
-                .header("x-goog-api-key", apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(
-                        buildBody(systemInstruction, userPrompt, true), StandardCharsets.UTF_8))
-                .build();
+        String body = buildBody(systemInstruction, userPrompt, true);
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (response.statusCode() != 200) {
-            throw new GeminiException("Gemini 요청에 실패했습니다. status=" + response.statusCode());
-        }
+        GeminiException lastError = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            HttpRequest request = HttpRequest.newBuilder(endpoint(":generateContent"))
+                    .timeout(timeout)
+                    .header("Content-Type", "application/json")
+                    .header("x-goog-api-key", apiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .build();
 
-        String text = extractText(objectMapper.readTree(response.body()), true);
-        if (text.isBlank()) {
-            throw new GeminiException("Gemini 응답이 비어 있습니다.");
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() != 200) {
+                lastError = new GeminiException("Gemini 요청에 실패했습니다. status=" + response.statusCode()
+                        + describe(response.body()));
+                if (!isRetryable(response.statusCode()) || attempt == MAX_ATTEMPTS) {
+                    throw lastError;
+                }
+                backoff(attempt);
+                continue;
+            }
+
+            String text = extractText(objectMapper.readTree(response.body()), true);
+            if (text.isBlank()) {
+                throw new GeminiException("Gemini 응답이 비어 있습니다.");
+            }
+            return text;
         }
-        return text;
+        throw lastError;
     }
 
     @Override
     public void streamMarkdown(String systemInstruction, String userPrompt, Consumer<String> onDelta) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(endpoint(":streamGenerateContent", "alt=sse"))
-                .timeout(timeout)
-                .header("Content-Type", "application/json")
-                .header("x-goog-api-key", apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(
-                        buildBody(systemInstruction, userPrompt, false), StandardCharsets.UTF_8))
-                .build();
+        String body = buildBody(systemInstruction, userPrompt, false);
 
-        HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        try (InputStream input = response.body();
-             BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+        GeminiException lastError = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            HttpRequest request = HttpRequest.newBuilder(endpoint(":streamGenerateContent", "alt=sse"))
+                    .timeout(timeout)
+                    .header("Content-Type", "application/json")
+                    .header("x-goog-api-key", apiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .build();
 
+            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() != 200) {
-                String error = reader.lines().limit(20).collect(Collectors.joining("\n"));
-                throw new GeminiException("Gemini 스트리밍 요청에 실패했습니다. status=" + response.statusCode()
-                        + (error.isBlank() ? "" : " body=" + error));
+                String error;
+                try (InputStream input = response.body();
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                    error = reader.lines().limit(20).collect(Collectors.joining("\n"));
+                }
+                lastError = new GeminiException("Gemini 스트리밍 요청에 실패했습니다. status=" + response.statusCode()
+                        + describe(error));
+                if (!isRetryable(response.statusCode()) || attempt == MAX_ATTEMPTS) {
+                    throw lastError;
+                }
+                backoff(attempt);
+                continue;
             }
 
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (!line.startsWith("data:")) {
-                    continue;
-                }
-                String data = line.substring("data:".length()).trim();
-                if (data.isEmpty() || "[DONE]".equals(data)) {
-                    continue;
-                }
+            try (InputStream input = response.body();
+                 BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.startsWith("data:")) {
+                        continue;
+                    }
+                    String data = line.substring("data:".length()).trim();
+                    if (data.isEmpty() || "[DONE]".equals(data)) {
+                        continue;
+                    }
 
-                String delta = extractText(objectMapper.readTree(data), false);
-                if (!delta.isEmpty()) {
-                    onDelta.accept(delta);
+                    String delta = extractText(objectMapper.readTree(data), false);
+                    if (!delta.isEmpty()) {
+                        onDelta.accept(delta);
+                    }
                 }
             }
+            return;
         }
+        throw lastError;
+    }
+
+    private static boolean isRetryable(int statusCode) {
+        return statusCode == 429 || statusCode == 500 || statusCode == 502 || statusCode == 503 || statusCode == 504;
+    }
+
+    private static String describe(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        String trimmed = body.trim();
+        return trimmed.length() > 300 ? trimmed.substring(0, 300) : trimmed;
+    }
+
+    private static void backoff(int attempt) throws InterruptedException {
+        Thread.sleep(500L * attempt);
     }
 
     private URI endpoint(String method) {
