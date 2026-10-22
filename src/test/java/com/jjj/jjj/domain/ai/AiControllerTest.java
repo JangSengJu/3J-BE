@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -153,6 +154,43 @@ class AiControllerTest {
         assertThat(stream).contains("## 1. 요약");
         assertThat(stream).contains("## 6. 결론");
         assertThat(stream).contains("[DONE]");
+    }
+
+    @Test
+    @DisplayName("POST /api/ai/report는 스트림이 중간에 실패하면 DONE 없이 오류로 끝난다")
+    void reportFailsWhenStreamBreaksMidway() throws Exception {
+        String token = auth(uniqueId());
+        Mockito.when(geminiClient.isAvailable()).thenReturn(true);
+        Mockito.doAnswer(invocation -> {
+            Consumer<String> onDelta = invocation.getArgument(2);
+            onDelta.accept("# 보고서\n\n## 1. 요약\n요약 내용\n");
+            throw new IOException("stream closed unexpectedly");
+        }).when(geminiClient).streamMarkdown(anyString(), anyString(), any());
+
+        String payload = body(Map.of(
+                "input", Map.of("resources", List.of(Map.of(
+                        "name", "vm-a", "type", "vm", "cost", 100, "usage", "10%", "need", "낮음"
+                ))),
+                "recommendations", List.of(Map.of(
+                        "title", "축소", "target", "vm-a", "savings", 30,
+                        "grounds", List.of("사용률 낮음"), "action", "downsizing", "kind", "cost"
+                ))
+        ));
+
+        MvcResult result = mockMvc.perform(post("/api/ai/report")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(result)).andExpect(status().isOk());
+
+        String stream = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(stream).contains("## 1. 요약");
+        assertThat(stream).contains("REPORT_STREAM_FAILED");
+        assertThat(stream).doesNotContain("[DONE]");
+        assertThat(stream).doesNotContain("## 6. 결론");
     }
 
     @Test

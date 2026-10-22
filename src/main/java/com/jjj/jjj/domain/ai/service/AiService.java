@@ -169,14 +169,18 @@ public class AiService {
             boolean fallbackNeeded
     ) {
         try {
+            boolean reportCompleted;
             if (fallbackNeeded) {
                 sendFallbackReport(emitter, input, resources, recommendations, cancelled);
+                reportCompleted = true;
             } else {
-                streamAiReport(emitter, input, resources, recommendations, cancelled);
+                reportCompleted = streamAiReport(emitter, input, resources, recommendations, cancelled);
             }
 
             if (!cancelled.get()) {
-                emitter.send(SseEmitter.event().data("[DONE]"));
+                if (reportCompleted) {
+                    emitter.send(SseEmitter.event().data("[DONE]"));
+                }
                 emitter.complete();
             }
         } catch (CancellationException e) {
@@ -193,7 +197,7 @@ public class AiService {
         }
     }
 
-    private void streamAiReport(
+    private boolean streamAiReport(
             SseEmitter emitter,
             AiInput input,
             List<AiResource> resources,
@@ -222,13 +226,28 @@ public class AiService {
             throw new CancellationException("client disconnected");
         }
 
-        if (failed && collected.isEmpty()) {
-            sendFallbackReport(emitter, input, resources, recommendations, cancelled);
-            return;
+        if (failed) {
+            if (collected.isEmpty()) {
+                sendFallbackReport(emitter, input, resources, recommendations, cancelled);
+                return true;
+            }
+            sendFailure(emitter);
+            return false;
         }
 
         if (!collected.toString().contains(CONCLUSION_HEADING)) {
             sendConclusion(emitter, input, resources, recommendations, cancelled);
+        }
+        return true;
+    }
+
+    private void sendFailure(SseEmitter emitter) {
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("error")
+                    .data(objectMapper.writeValueAsString(Map.of("error", "REPORT_STREAM_FAILED"))));
+        } catch (IOException e) {
+            throw new CancellationException("client disconnected");
         }
     }
 
