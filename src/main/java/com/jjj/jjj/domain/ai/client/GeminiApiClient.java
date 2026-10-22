@@ -14,6 +14,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -47,6 +48,7 @@ public class GeminiApiClient implements GeminiClient {
     private final String model;
     private final String baseUrl;
     private final Duration timeout;
+    private final Duration deadline;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
@@ -56,12 +58,14 @@ public class GeminiApiClient implements GeminiClient {
             @Value("${gemini.allowed-models:}") List<String> allowedModels,
             @Value("${gemini.base-url:https://generativelanguage.googleapis.com/v1beta}") String baseUrl,
             @Value("${gemini.timeout:60s}") Duration timeout,
+            @Value("${gemini.deadline:30s}") Duration deadline,
             ObjectMapper objectMapper
     ) {
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.model = resolveFreeModel(model, allowedModels);
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.timeout = timeout;
+        this.deadline = deadline;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -103,24 +107,40 @@ public class GeminiApiClient implements GeminiClient {
     @Override
     public String generateJson(String systemInstruction, String userPrompt) throws Exception {
         String body = buildBody(systemInstruction, userPrompt, true);
+        long deadlineNanos = System.nanoTime() + deadline.toNanos();
 
         GeminiException lastError = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            Duration attemptTimeout = remainingTimeout(deadlineNanos);
+            if (attemptTimeout == null) {
+                throw deadlineExceeded(lastError);
+            }
+
             HttpRequest request = HttpRequest.newBuilder(endpoint(":generateContent"))
-                    .timeout(timeout)
+                    .timeout(attemptTimeout)
                     .header("Content-Type", "application/json")
                     .header("x-goog-api-key", apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response;
+            try {
+                response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            } catch (HttpTimeoutException e) {
+                lastError = new GeminiException("Gemini 요청이 시간 초과되었습니다. timeout=" + attemptTimeout, e);
+                if (attempt == MAX_ATTEMPTS || !sleepWithinDeadline(attempt, deadlineNanos)) {
+                    throw lastError;
+                }
+                continue;
+            }
+
             if (response.statusCode() != 200) {
                 lastError = new GeminiException("Gemini 요청에 실패했습니다. status=" + response.statusCode()
                         + describe(response.body()));
-                if (!isRetryable(response.statusCode()) || attempt == MAX_ATTEMPTS) {
+                if (!isRetryable(response.statusCode()) || attempt == MAX_ATTEMPTS
+                        || !sleepWithinDeadline(attempt, deadlineNanos)) {
                     throw lastError;
                 }
-                backoff(attempt);
                 continue;
             }
 
@@ -187,6 +207,29 @@ public class GeminiApiClient implements GeminiClient {
 
     private static boolean isRetryable(int statusCode) {
         return statusCode == 429 || statusCode == 500 || statusCode == 502 || statusCode == 503 || statusCode == 504;
+    }
+
+    private Duration remainingTimeout(long deadlineNanos) {
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+            return null;
+        }
+        Duration remaining = Duration.ofNanos(remainingNanos);
+        return timeout.compareTo(remaining) > 0 ? remaining : timeout;
+    }
+
+    private boolean sleepWithinDeadline(int attempt, long deadlineNanos) throws InterruptedException {
+        long backoffMillis = 500L * attempt;
+        if (System.nanoTime() + backoffMillis * 1_000_000L >= deadlineNanos) {
+            return false;
+        }
+        Thread.sleep(backoffMillis);
+        return true;
+    }
+
+    private GeminiException deadlineExceeded(GeminiException lastError) {
+        return new GeminiException("Gemini 요청이 데드라인(" + deadline + ")을 초과했습니다."
+                + (lastError == null ? "" : " 마지막 오류: " + lastError.getMessage()));
     }
 
     private static String describe(String body) {
