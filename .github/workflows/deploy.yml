@@ -1,0 +1,217 @@
+name: JJJ CI/CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # Docker Hub
+  DOCKER_USERNAME: sungjujjang
+  IMAGE_NAME: jjj
+  IMAGE_REPO: sungjujjang/jjj
+
+  # GitOps Repository
+  GITOPS_REPO: JangSengJu/3J-infra-applications
+  GITOPS_BRANCH: main
+  GITOPS_MANIFEST: apps/jjj/values.yaml
+
+  # Git Commit
+  GIT_AUTHOR_NAME: sungjujjang
+  GIT_AUTHOR_EMAIL: printhelloworld0702@gmail.com
+
+  # Discord
+  DISCORD_FOOTER: "JJJ CI/CD Automation"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+
+    steps:
+      - name: Checkout App Repo
+        uses: actions/checkout@v4
+
+      - name: Generate Image Tag
+        id: tag
+        run: |
+          IMAGE_TAG=$(date +%Y%m%d-%H%M%S)
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_REPO }}:${{ steps.tag.outputs.image_tag }}
+            ${{ env.IMAGE_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  update-gitops:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+
+    steps:
+      - name: Checkout GitOps Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          ref: ${{ env.GITOPS_BRANCH }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Update GitOps Values
+        working-directory: gitops
+        env:
+          IMAGE_REPO: ${{ env.IMAGE_REPO }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          GITOPS_MANIFEST: ${{ env.GITOPS_MANIFEST }}
+        run: |
+          set -eu
+          test -f "$GITOPS_MANIFEST"
+
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path(os.environ["GITOPS_MANIFEST"])
+          content = path.read_text()
+
+          match = re.search(
+              r"(?m)^image:[ \t]*\n"
+              r"(?P<body>(?:(?:[ \t]+[^\n]*|[ \t]*)\n)*)",
+              content,
+          )
+
+          if not match:
+              raise SystemExit("Top-level image section not found")
+
+          body = match.group("body")
+
+          repository_pattern = re.compile(
+              r"(?m)^([ \t]+repository:[ \t]*)[^\n#]+"
+          )
+          tag_pattern = re.compile(
+              r"(?m)^([ \t]+tag:[ \t]*)[^\n#]+"
+          )
+
+          body, repo_count = repository_pattern.subn(
+              lambda m: m.group(1) + os.environ["IMAGE_REPO"],
+              body,
+              count=1,
+          )
+
+          body, tag_count = tag_pattern.subn(
+              lambda m: m.group(1) + '"' + os.environ["IMAGE_TAG"] + '"',
+              body,
+              count=1,
+          )
+
+          if repo_count != 1 or tag_count != 1:
+              raise SystemExit("Could not find repository and tag in top-level image section")
+
+          content = (
+              content[:match.start("body")]
+              + body
+              + content[match.end("body"):]
+          )
+
+          path.write_text(content)
+
+          print(f"Updated image: {os.environ['IMAGE_REPO']}:{os.environ['IMAGE_TAG']}")
+          PY
+
+          echo "Updated GitOps manifest:"
+          grep -A 4 '^image:' "$GITOPS_MANIFEST"
+
+      - name: Commit & Push GitOps
+        working-directory: gitops
+        run: |
+          set -eu
+          git config user.name "${{ env.GIT_AUTHOR_NAME }}"
+          git config user.email "${{ env.GIT_AUTHOR_EMAIL }}"
+
+          git add "$GITOPS_MANIFEST"
+
+          if git diff --cached --quiet; then
+            echo "No GitOps changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(jjj): update image to ${{ env.IMAGE_TAG }}"
+          git push origin "${{ env.GITOPS_BRANCH }}"
+
+  notify:
+    needs: [build-and-push, update-gitops]
+    runs-on: ubuntu-latest
+    if: always()
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+      JOB_STATUS: ${{ (needs.build-and-push.result == 'success' && needs.update-gitops.result == 'success') && 'SUCCESS' || 'FAILURE' }}
+
+    steps:
+      - name: Notify Discord on Success
+        if: env.JOB_STATUS == 'SUCCESS'
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg title "CI/CD 배포 성공 — ${GITHUB_WORKFLOW} #${GITHUB_RUN_NUMBER}" \
+              --arg footer "${{ env.DISCORD_FOOTER }}" \
+              --arg timestamp "$TIMESTAMP" \
+              --arg repo "${{ github.repository }}" \
+              --arg branch "${{ github.ref_name }}" \
+              --arg image "${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }}" \
+              --arg gitops_repo "${{ env.GITOPS_REPO }}" \
+              --arg gitops_branch "${{ env.GITOPS_BRANCH }}" \
+              --arg gitops_manifest "${{ env.GITOPS_MANIFEST }}" \
+              --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              '{
+                "embeds": [{
+                  "title": $title,
+                  "color": 3066993,
+                  "description": "**JJJ CI/CD 배포 성공**\n\n**프로젝트**\n- Repository: \($repo)\n- Branch: \($branch)\n\n**Docker Image**\n- Image: `\($image)`\n\n**GitOps**\n- Repository: `\($gitops_repo)`\n- Branch: \($gitops_branch)`\n- Values: `\($gitops_manifest)`\n\n[빌드 로그 보기](\($run_url))",
+                  "footer": { "text": $footer },
+                  "timestamp": $timestamp
+                }]
+              }')"
+
+      - name: Notify Discord on Failure
+        if: env.JOB_STATUS == 'FAILURE'
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg title "CI/CD 배포 실패 — ${GITHUB_WORKFLOW} #${GITHUB_RUN_NUMBER}" \
+              --arg footer "${{ env.DISCORD_FOOTER }}" \
+              --arg timestamp "$TIMESTAMP" \
+              --arg repo "${{ github.repository }}" \
+              --arg image_tag "${{ env.IMAGE_TAG != '' && env.IMAGE_TAG || 'N/A' }}" \
+              --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              '{
+                "embeds": [{
+                  "title": $title,
+                  "color": 15158332,
+                  "description": "**JJJ CI/CD 배포 실패**\n\n- Repository: \($repo)\n- Build Number: #${{ github.run_number }}\n- Image Tag: \($image_tag)\n\n[실패 로그 확인하기](\($run_url))",
+                  "footer": { "text": $footer },
+                  "timestamp": $timestamp
+                }]
+              }')"

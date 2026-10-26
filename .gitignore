@@ -38,3 +38,4 @@ out/
 
 ### Env ###
 .env
+jjj-secret.yaml
