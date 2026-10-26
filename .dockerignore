@@ -1,0 +1,11 @@
+build
+.gradle
+.git
+.gitignore
+README.md
+*.md
+.env
+.env.*
+.idea
+*.iml
+jjj-secret.yaml
